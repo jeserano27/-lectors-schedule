@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { storageGet, storageSet } from "./storage";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS_EN = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -14,11 +13,17 @@ const DEFAULT_COLS = [
 const RT = { MASS: "mass", BANNER: "banner" };
 const SK = { data: "pa-v7", auth: "pa-v7-admin", published: "pa-v7-pub" };
 
-async function sG(k) {
-  return await storageGet(k);
+async function sG(k, sh) {
+  try {
+    const r = sh !== false ? await window.storage.get(k, true) : await window.storage.get(k);
+    return r ? JSON.parse(r.value) : null;
+  } catch (e) { return null; }
 }
-async function sS(k, v) {
-  await storageSet(k, v);
+async function sS(k, v, sh) {
+  try {
+    if (sh !== false) await window.storage.set(k, JSON.stringify(v), true);
+    else await window.storage.set(k, JSON.stringify(v));
+  } catch (e) {}
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -192,12 +197,121 @@ export default function App() {
   const isMember = role === "member";
   const showToast = useCallback((msg, type) => { setToast({ msg, type: type || "ok" }); setTimeout(() => setToast(null), 2400); }, []);
   const mk = year + "-" + month;
+  const captureRef = useRef(null);
+
+  // Screenshot: capture schedule as image
+  const handleScreenshot = async () => {
+    if (!captureRef.current) return;
+    showToast("Generating image...");
+    try {
+      // Dynamically load html2canvas
+      if (!window.html2canvas) {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        document.head.appendChild(script);
+        await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      }
+      const canvas = await window.html2canvas(captureRef.current, {
+        scale: 2,
+        backgroundColor: "#FAF7F2",
+        useCORS: true,
+        logging: false,
+      });
+      canvas.toBlob(async (blob) => {
+        if (!blob) { showToast("Failed to capture", "err"); return; }
+        // Try native share (mobile)
+        if (navigator.share && navigator.canShare) {
+          const file = new File([blob], "lectors-schedule-" + MONTHS[month] + "-" + year + ".png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], title: "Lectors Schedule" });
+            showToast("Shared!");
+            return;
+          } catch (e) {
+            // User cancelled or share failed, fall through to download
+          }
+        }
+        // Fallback: download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "lectors-schedule-" + MONTHS[month] + "-" + year + ".png";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("Image saved!");
+      }, "image/png");
+    } catch (e) {
+      console.error("Screenshot error:", e);
+      showToast("Screenshot failed", "err");
+    }
+  };
+
+  // Excel export
+  const handleExcelExport = () => {
+    try {
+      // Build CSV content (works on all devices, opens in Excel)
+      const sep = ",";
+      const esc = (v) => {
+        const s = String(v || "").replace(/"/g, '""');
+        return '"' + s + '"';
+      };
+      const headerRow = ["Date", "Day", "Time", ...cols.map(c => c.label)];
+      const csvRows = [headerRow.map(esc).join(sep)];
+
+      rows.forEach(row => {
+        if (row.type === RT.BANNER) {
+          csvRows.push(esc(row.text));
+          return;
+        }
+        const cellValues = cols.map(c => {
+          const cv = getCV(row, c.id);
+          return cv.text || "";
+        });
+        csvRows.push([esc(row.date), esc(row.day), esc(row.time), ...cellValues.map(esc)].join(sep));
+      });
+
+      // Add header and footer info
+      const settings = isMember && publishedData && publishedData.settings ? publishedData.settings : appData.settings;
+      const header = [
+        esc(settings.parishName),
+        esc("Lectors Schedule of Duty for the Month of " + MONTHS[month] + " 1-" + dimM(year, month) + ", " + year),
+        ""
+      ];
+      const footer = [
+        "",
+        esc("Prepared by: " + settings.preparedBy),
+        esc("Approved by: " + settings.approvedBy),
+      ];
+
+      const fullCsv = [...header, ...csvRows, ...footer].join("\n");
+
+      // BOM for Excel to recognize UTF-8
+      const blob = new Blob(["\uFEFF" + fullCsv], { type: "text/csv;charset=utf-8;" });
+
+      // Try native share on mobile
+      if (navigator.share && navigator.canShare) {
+        const file = new File([blob], "lectors-schedule-" + MONTHS[month] + "-" + year + ".csv", { type: "text/csv" });
+        navigator.share({ files: [file], title: "Lectors Schedule" }).catch(() => {});
+      }
+
+      // Also download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lectors-schedule-" + MONTHS[month] + "-" + year + ".csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Excel file saved!");
+    } catch (e) {
+      console.error("Export error:", e);
+      showToast("Export failed", "err");
+    }
+  };
 
   useEffect(() => {
     (async () => {
-      const d = await sG(SK.data);
-      const a = await sG(SK.auth);
-      const p = await sG(SK.published);
+      const d = await sG(SK.data, true);
+      const a = await sG(SK.auth, true);
+      const p = await sG(SK.published, true);
       if (d) setAppData(d);
       if (p) setPublishedData(p);
       if (!a) setSetupMode(true);
@@ -210,7 +324,7 @@ export default function App() {
 
   const save = useCallback(async (nd) => {
     setAppData(nd);
-    await sS(SK.data, nd);
+    await sS(SK.data, nd, true);
     // Mark current month as having unpublished changes
     setUnpublishedMonths(prev => ({ ...prev, [mk]: true }));
   }, [mk]);
@@ -241,7 +355,7 @@ export default function App() {
     newPub.settings = appData.settings;
     newPub.timestamps = { ...(newPub.timestamps || {}), [mk]: Date.now() };
     setPublishedData(newPub);
-    await sS(SK.published, newPub);
+    await sS(SK.published, newPub, true);
     setUnpublishedMonths(prev => { const n = { ...prev }; delete n[mk]; return n; });
     showToast("Published! Members can now see " + MONTHS[month] + " schedule.");
   }, [publishedData, mk, rows, appData, month, showToast]);
@@ -371,11 +485,11 @@ export default function App() {
     if (newPin.length < 4) { showToast("Min 4 digits", "err"); return; }
     if (newPin !== confirmPin) { showToast("PINs don't match", "err"); return; }
     if (!securityAnswer.trim()) { showToast("Enter security answer", "err"); return; }
-    await sS(SK.auth, { pin: newPin, security: securityAnswer.trim().toLowerCase() });
+    await sS(SK.auth, { pin: newPin, security: securityAnswer.trim().toLowerCase() }, true);
     setSetupMode(false); setRole("admin"); showToast("Welcome, Admin!");
   };
   const handleLogin = async () => {
-    const a = await sG(SK.auth);
+    const a = await sG(SK.auth, true);
     if (a && a.pin === pin) { setRole("admin"); setPin(""); showToast("Welcome!"); }
     else showToast("Wrong PIN", "err");
   };
@@ -386,17 +500,17 @@ export default function App() {
   const handleChangePin = async () => {
     if (changePin.length < 4) { showToast("Min 4 digits", "err"); return; }
     if (changePin !== changePinConfirm) { showToast("PINs don't match", "err"); return; }
-    const a = await sG(SK.auth);
-    await sS(SK.auth, { ...a, pin: changePin });
+    const a = await sG(SK.auth, true);
+    await sS(SK.auth, { ...a, pin: changePin }, true);
     setChangePin(""); setChangePinConfirm(""); setShowChangePin(false);
     showToast("PIN changed!");
   };
   const handleForgotPin = async () => {
-    const a = await sG(SK.auth);
+    const a = await sG(SK.auth, true);
     if (!a || !a.security) { showToast("No security answer set", "err"); return; }
     if (forgotAnswer.trim().toLowerCase() !== a.security) { showToast("Wrong answer", "err"); return; }
     if (forgotNewPin.length < 4) { showToast("New PIN min 4 digits", "err"); return; }
-    await sS(SK.auth, { ...a, pin: forgotNewPin });
+    await sS(SK.auth, { ...a, pin: forgotNewPin }, true);
     setForgotAnswer(""); setForgotNewPin(""); setShowForgotPin(false);
     setRole("admin"); showToast("PIN reset! You're logged in.");
   };
@@ -564,7 +678,7 @@ export default function App() {
 
       {/* ═══ SCHEDULE ═══ */}
       {tab === "schedule" && (
-        <div>
+        <div id="schedule-capture" ref={captureRef}>
           {/* TITLE HEADER (always visible) */}
           <div className="sched-header">
             <div className="sh-parish">{isMember && publishedData && publishedData.settings ? publishedData.settings.parishName : appData.settings.parishName}</div>
@@ -603,6 +717,8 @@ export default function App() {
             )}
             {isAdmin && <button className="btn-sm" onClick={resetMonth}>🔄</button>}
             <button className="btn-sm" onClick={() => window.print()}>🖨️</button>
+            <button className="btn-sm" onClick={handleScreenshot}>📸</button>
+            <button className="btn-sm" onClick={handleExcelExport}>📊</button>
           </div>
 
           {/* Draft indicator */}

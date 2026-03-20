@@ -313,14 +313,14 @@ export default function App() {
       const p = await sG(SK.published);
       if (d) setAppData(d);
       if (p) setPublishedData(p);
-      // Only show setup if BOTH auth AND data are empty
-      // This means no admin has ever been created
-      // If data exists but auth failed to load (slow network), 
-      // show login screen instead of setup
-      if (!a && !d && !p) {
+      // Only show setup if truly first time:
+      // - No auth record AND no data AND no published data AND no adminCreated flag
+      const adminExists = (a && a.pin) || (d && d.adminCreated) || p;
+      if (!adminExists) {
         setSetupMode(true);
+      } else {
+        setSetupMode(false);
       }
-      // Auto-advance to current month
       setMonth(new Date().getMonth());
       setYear(new Date().getFullYear());
       setLoading(false);
@@ -490,8 +490,15 @@ export default function App() {
     if (newPin.length < 4) { showToast("Min 4 digits", "err"); return; }
     if (newPin !== confirmPin) { showToast("PINs don't match", "err"); return; }
     if (!securityAnswer.trim()) { showToast("Enter security answer", "err"); return; }
+    // Save PIN to shared storage
     await sS(SK.auth, { pin: newPin, security: securityAnswer.trim().toLowerCase() });
-    setSetupMode(false); setRole("admin"); showToast("Welcome, Admin!");
+    // Also save initial app data with adminCreated flag so other devices know admin exists
+    const initData = { ...appData, adminCreated: true };
+    await sS(SK.data, initData);
+    setAppData(initData);
+    setSetupMode(false);
+    setRole("admin");
+    showToast("Welcome, Admin!");
   };
   const handleLogin = async () => {
     const a = await sG(SK.auth);
@@ -587,10 +594,11 @@ export default function App() {
     return (
       <div className="app-root">
         <style>{CSS}</style>
+        {toast && <div className={"toast" + (toast.type === "err" ? " toast-err" : "")}>{toast.msg}</div>}
         <div className="setup-card">
           <div style={{ fontSize: 40, color: "#6B2737", marginBottom: 6 }}>✝</div>
           <h2 className="setup-title">Lectors Schedule</h2>
-          <p className="setup-sub">Set your Admin PIN to begin</p>
+          <p className="setup-sub">First time setup — create your Admin PIN</p>
           <input type="password" placeholder="New PIN (min 4 digits)" value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, ""))} className="inp" maxLength={8} />
           <input type="password" placeholder="Confirm PIN" value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} className="inp mt8" maxLength={8} />
           <p className="hint mt12">Security question (for PIN recovery):</p>

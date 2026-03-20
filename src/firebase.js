@@ -1,19 +1,22 @@
-// ═══════════════════════════════════════════════════════════
-// REPLACE THIS CONFIG WITH YOUR OWN FROM FIREBASE CONSOLE
-// Go to: Firebase Console → Project Settings → Your Apps → Web
-// ═══════════════════════════════════════════════════════════
-
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "PASTE_YOUR_API_KEY_HERE",
-  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
-  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-  storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
-  messagingSenderId: "PASTE_YOUR_SENDER_ID_HERE",
-  appId: "PASTE_YOUR_APP_ID_HERE"
+  apiKey: "AIzaSyCpcr8iy2bNrtMmvYUNEhyq-r4VYnJFK5E",
+  authDomain: "church-scheduler-94627.firebaseapp.com",
+  projectId: "church-scheduler-94627",
+  storageBucket: "church-scheduler-94627.firebasestorage.app",
+  messagingSenderId: "646082133170",
+  appId: "1:646082133170:web:8da0d344ed79b8ffd81dab",
+  measurementId: "G-TFLMFSW2ZF"
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+// Initialize Firestore with persistent cache for faster loading
+// and offline support
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentSingleTabManager({ forceOwnership: true })
+  })
+});

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { storageGet, storageSet } from "./storage";
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS_EN = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -14,15 +15,10 @@ const RT = { MASS: "mass", BANNER: "banner" };
 const SK = { data: "pa-v7", auth: "pa-v7-admin", published: "pa-v7-pub" };
 
 async function sG(k) {
-  try {
-    const r = await window.storage.get(k, true);
-    return r ? JSON.parse(r.value) : null;
-  } catch (e) { return null; }
+  return await storageGet(k);
 }
 async function sS(k, v) {
-  try {
-    await window.storage.set(k, JSON.stringify(v), true);
-  } catch (e) {}
+  await storageSet(k, v);
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);

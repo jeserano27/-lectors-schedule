@@ -13,16 +13,15 @@ const DEFAULT_COLS = [
 const RT = { MASS: "mass", BANNER: "banner" };
 const SK = { data: "pa-v7", auth: "pa-v7-admin", published: "pa-v7-pub" };
 
-async function sG(k, sh) {
+async function sG(k) {
   try {
-    const r = sh !== false ? await window.storage.get(k, true) : await window.storage.get(k);
+    const r = await window.storage.get(k, true);
     return r ? JSON.parse(r.value) : null;
   } catch (e) { return null; }
 }
-async function sS(k, v, sh) {
+async function sS(k, v) {
   try {
-    if (sh !== false) await window.storage.set(k, JSON.stringify(v), true);
-    else await window.storage.set(k, JSON.stringify(v));
+    await window.storage.set(k, JSON.stringify(v), true);
   } catch (e) {}
 }
 
@@ -309,12 +308,18 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const d = await sG(SK.data, true);
-      const a = await sG(SK.auth, true);
-      const p = await sG(SK.published, true);
+      const d = await sG(SK.data);
+      const a = await sG(SK.auth);
+      const p = await sG(SK.published);
       if (d) setAppData(d);
       if (p) setPublishedData(p);
-      if (!a) setSetupMode(true);
+      // Only show setup if BOTH auth AND data are empty
+      // This means no admin has ever been created
+      // If data exists but auth failed to load (slow network), 
+      // show login screen instead of setup
+      if (!a && !d && !p) {
+        setSetupMode(true);
+      }
       // Auto-advance to current month
       setMonth(new Date().getMonth());
       setYear(new Date().getFullYear());
@@ -324,7 +329,7 @@ export default function App() {
 
   const save = useCallback(async (nd) => {
     setAppData(nd);
-    await sS(SK.data, nd, true);
+    await sS(SK.data, nd);
     // Mark current month as having unpublished changes
     setUnpublishedMonths(prev => ({ ...prev, [mk]: true }));
   }, [mk]);
@@ -355,7 +360,7 @@ export default function App() {
     newPub.settings = appData.settings;
     newPub.timestamps = { ...(newPub.timestamps || {}), [mk]: Date.now() };
     setPublishedData(newPub);
-    await sS(SK.published, newPub, true);
+    await sS(SK.published, newPub);
     setUnpublishedMonths(prev => { const n = { ...prev }; delete n[mk]; return n; });
     showToast("Published! Members can now see " + MONTHS[month] + " schedule.");
   }, [publishedData, mk, rows, appData, month, showToast]);
@@ -485,11 +490,11 @@ export default function App() {
     if (newPin.length < 4) { showToast("Min 4 digits", "err"); return; }
     if (newPin !== confirmPin) { showToast("PINs don't match", "err"); return; }
     if (!securityAnswer.trim()) { showToast("Enter security answer", "err"); return; }
-    await sS(SK.auth, { pin: newPin, security: securityAnswer.trim().toLowerCase() }, true);
+    await sS(SK.auth, { pin: newPin, security: securityAnswer.trim().toLowerCase() });
     setSetupMode(false); setRole("admin"); showToast("Welcome, Admin!");
   };
   const handleLogin = async () => {
-    const a = await sG(SK.auth, true);
+    const a = await sG(SK.auth);
     if (a && a.pin === pin) { setRole("admin"); setPin(""); showToast("Welcome!"); }
     else showToast("Wrong PIN", "err");
   };
@@ -500,17 +505,17 @@ export default function App() {
   const handleChangePin = async () => {
     if (changePin.length < 4) { showToast("Min 4 digits", "err"); return; }
     if (changePin !== changePinConfirm) { showToast("PINs don't match", "err"); return; }
-    const a = await sG(SK.auth, true);
-    await sS(SK.auth, { ...a, pin: changePin }, true);
+    const a = await sG(SK.auth);
+    await sS(SK.auth, { ...a, pin: changePin });
     setChangePin(""); setChangePinConfirm(""); setShowChangePin(false);
     showToast("PIN changed!");
   };
   const handleForgotPin = async () => {
-    const a = await sG(SK.auth, true);
+    const a = await sG(SK.auth);
     if (!a || !a.security) { showToast("No security answer set", "err"); return; }
     if (forgotAnswer.trim().toLowerCase() !== a.security) { showToast("Wrong answer", "err"); return; }
     if (forgotNewPin.length < 4) { showToast("New PIN min 4 digits", "err"); return; }
-    await sS(SK.auth, { ...a, pin: forgotNewPin }, true);
+    await sS(SK.auth, { ...a, pin: forgotNewPin });
     setForgotAnswer(""); setForgotNewPin(""); setShowForgotPin(false);
     setRole("admin"); showToast("PIN reset! You're logged in.");
   };
